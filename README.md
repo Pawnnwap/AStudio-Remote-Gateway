@@ -2,7 +2,7 @@
 
 > **⚠️ 非官方声明与免责声明见文末「免责声明」章节。本项目与 iFlytek（讯飞）/ AStudio 无任何关联，仅通过本地进程间机制实现个人自动化。**
 
-通过 IM（**飞书试点**，钉钉/QQ 可按同一契约扩展）远程指挥本机 AStudio 的 GUI 对话：
+通过 IM（**飞书试点**，钉钉/QQ 可按同一契约扩展）远程指挥本机 AStudio 的对话：
 列出已有会话、进入对话、直接发文字指挥、执行中插话/停止、切换模型、调度全新任务。
 全程复用 AStudio 登录态，**不配置任何 API key**。
 
@@ -19,12 +19,12 @@
 
 | 能力 | 实现 |
 |---|---|
-| 会话发现 | `/sessions` 只读枚举 AStudio 已有 GUI 对话；按最近活跃排序，`●执行中` 标记，序号按创建固定 |
+| 会话发现 | `/sessions` 只读枚举 AStudio 已有对话；按最近活跃排序，`●执行中` 标记，序号按创建固定 |
 | 进入对话 | `/task <序号>`：接管该对话（幂等，重复执行即切回） |
-| 远程指挥 | 直接发文字投递到当前对话，GUI 实时可见。会话空闲时经 App 自动化调度器投递（官方 tick ≤1 分钟）；执行中即时 |
+| 远程指挥 | 直接发文字投递到当前对话，界面实时可见。会话空闲时经 App 自动化调度器投递（官方 tick ≤1 分钟）；执行中即时 |
 | 忙碌闸门 | 任务执行中拒收新指令并提示；`/steer <插话>` 引导当前回合；`/stop` 真实打断 |
 | 切换模型 | `/model <slug>`：经自动化改绑线程模型，持久生效（内置模型直接切；custom 绑定自动补全 customModel） |
-| 调度新任务 | 没有任务时直接发文字：App 新建 GUI 线程执行你的指令并自动绑定为当前任务 |
+| 调度新任务 | 没有任务时直接发文字：App 新建对话执行你的指令并自动绑定为当前任务 |
 | 上下文读取 | `/history [条数]`：实时读当前对话内容 |
 | 渲染与交互 | 回复以 markdown 卡片发送（失败自动降级纯文本）；支持机器人底部菜单 |
 
@@ -40,9 +40,9 @@
 
 1. **安装 AStudio 桌面版并登录**——登录态是全部模型通道的凭证来源，本项目不配置任何 API key。
 2. **使用网关期间保持 AStudio 运行**。三个依赖都活在 App 进程里：内置 MCP 服务（动态端口，网关自动发现）、本地模型网关、自动化调度器。
-3. 在 GUI 里**正常创建对话并至少成功跑过一个回合**。`/sessions` 发现只要求有消息；进入（takeover）要求存在内核会话绑定，跑过回合即有。
+3. 在界面里**正常创建对话并至少成功跑过一个回合**。`/sessions` 发现只要求有消息；进入（takeover）要求存在内核会话绑定，跑过回合即有。
 4. 路径全部自动探测；非默认安装位置才需要环境变量覆盖（见下「配置项」）。
-5. **验证**：`python main.py --mock` 后输入 `/sessions`，能列出 GUI 会话即配置完成。
+5. **验证**：`python main.py --mock` 后输入 `/sessions`，能列出对话即配置完成。
 
 说明：
 - 本项目对 AStudio 数据**只读**（发现/进入绑定）；唯一的写入是自动化定义表（官方投递机制）与 App MCP 工具调用。
@@ -126,14 +126,14 @@ powershell -ExecutionPolicy Bypass -File start_feishu.ps1
 /task                      当前任务详情（含执行状态）
 /task <序号>               进入对话（序号同 /sessions；重复执行即切回）
 /task del <序号|名>        删除任务
-/sessions                  列出 AStudio 已有 GUI 对话
+/sessions                  列出 AStudio 已有 对话
 /model [模型]              查看/切换当前任务的模型
 /history [条数]            读取当前对话内容
 /status                    当前状态总览
 /stop                      停止当前正在执行的回合
 /steer <插话>              执行中插话引导方向
 /help                      帮助
-直接发文字 = 指挥当前任务；没有任务时 = 调度一个全新 GUI 任务。
+直接发文字 = 指挥当前任务；没有任务时 = 调度一个全新 任务。
 ```
 
 ---
@@ -160,7 +160,7 @@ powershell -ExecutionPolicy Bypass -File start_feishu.ps1
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | - | 飞书自建应用凭证（必填） |
 | `FEISHU_DOMAIN` | `https://open.feishu.cn` | 飞书开放平台域名 |
 | `ASTUDIO_APP_DB` | 自动探测 | AStudio App SQLite（只读） |
-| `ASTUDIO_GUI_ACODE_HOME` | 自动探测 | GUI 内核 home（overlay） |
+| `ASTUDIO_GUI_ACODE_HOME` | 自动探测 | 对话所在内核 home（overlay） |
 | `GATEWAY_DATA_DIR` | `./data` | registry.json 落盘目录 |
 | `GATEWAY_EXEC_TIMEOUT` | `600` | 等待模型回复的超时（秒） |
 
@@ -173,7 +173,7 @@ gateway/router.py             命令解析 + 投递编排核心（渠道无关�
 gateway/context_store.py      用户-任务注册表（持久化）
 gateway/astudio_mcp.py        AStudio App 控制面客户端（MCP 发现/凭证提取/读写线程/打断）
 gateway/astudio_automation.py 自动化调度通道（直写一次性定义，无人值守投递/换模型/新建任务）
-gateway/session_import.py     AStudio 存量 GUI 会话发现
+gateway/session_import.py     AStudio 存量对话发现
 gateway/feishu_client.py      飞书适配器（新渠道的参考实现）
 vendor/                       （可选）lark-oapi SDK 本地 vendor，git 忽略
 start_feishu.ps1.example      启动脚本模板（复制填写，git 忽略真实文件）
@@ -185,7 +185,7 @@ start_feishu.ps1.example      启动脚本模板（复制填写，git 忽略真�
 - 空闲会话的投递延迟由 AStudio 自动化调度器 tick 决定（实测约 50 秒，官方行为）；执行中的会话走 MCP 即时插话
 - AStudio 未运行时：`/sessions` 可用（纯 SQLite 只读）；发文字、换模型、`/history` 需 App 在线（返回明确提示）
 - 调度新任务 / 换模型会向 App 自动化调度器写入一次性定义并在触发后归档，可在 AStudio 侧自动化列表中看到历史记录
-- 自定义绑定模型跨线程切换依赖 `provider_session_runtime` 里存在完整绑定记录；全新机器首次切换 custom 模型前，先在 GUI 里用过该模型一次
+- 自定义绑定模型跨线程切换依赖 `provider_session_runtime` 里存在完整绑定记录；全新机器首次切换 custom 模型前，先在界面里用过该模型一次
 - 跨设备共享：把 `data/` 目录放到网盘/服务器即等同实现
 
 ---

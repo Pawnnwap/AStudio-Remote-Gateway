@@ -4,18 +4,18 @@
 
 命令语法（飞书消息以 / 开头即命令）：
   /help                     帮助
-  /model [slug]             查看/切换当前 GUI 任务的模型
+  /model [模型]             查看/切换当前任务的模型
   /task                     任务列表（带序号）
   /task sw <序号|名>        切换任务
   /task del <序号|名>       删除任务
-  /task takeover <编号>     接管 AStudio GUI 会话
-  /sessions                 列出 AStudio 已有 GUI 对话
+  /task takeover <编号>     （已并入 /task <序号>）
+  /sessions                 列出 AStudio 已有对话
   /history [条数]           读取当前任务上下文
   /status                   当前状态总览
 
 直接发文本：
   - 当前有接管任务 -> 消息投递到该 AStudio 对话
-  - 没有任务       -> 调度一个全新 GUI 任务（App 新建线程并执行，跑完自动绑定）
+  - 没有任务       -> 调度一个全新的 AStudio 任务（App 新建对话并执行，跑完自动绑定）
 全部走 AStudio 自带通道，零 API key。
 """
 from __future__ import annotations
@@ -29,14 +29,14 @@ HELP_TEXT = """可用命令：
 /task                      已进入的任务列表
 /task <序号>               进入 AStudio 对话（序号同 /sessions，如 /task 3）
 /task del <序号|名>        删除任务
-/sessions                  列出 AStudio 已有 GUI 对话
+/sessions                  列出 AStudio 已有对话
 /model [模型]              查看/切换当前任务的模型（改绑持久生效）
 /history [条数]            读取当前任务上下文
 /status                    当前状态总览
 /stop                      停止当前正在执行的回合
 /steer <插话>              执行中插话引导方向
 /help                      本帮助
-直接发文字 = 指挥当前任务；没有任务时 = 调度一个全新 GUI 任务。
+直接发文字 = 指挥当前任务；没有任务时 = 调度一个全新的 AStudio 任务。
 任务忙碌时新指令会被拒收（用 /stop 或 /steer）。"""
 
 
@@ -91,7 +91,7 @@ def _handle_command(open_id: str, text: str) -> str:
     if cmd == "/stop":
         task = store.current_task(open_id)
         if not task or task.get("origin") != "gui":
-            return "当前没有进入的 GUI 对话。"
+            return "当前没有进入的对话。"
         thread_id = task.get("gui_thread_id") or task.get("session_id")
         try:
             import gateway.astudio_mcp as mcp
@@ -106,7 +106,7 @@ def _handle_command(open_id: str, text: str) -> str:
     if cmd == "/steer":
         task = store.current_task(open_id)
         if not task or task.get("origin") != "gui":
-            return "当前没有进入的 GUI 对话。"
+            return "当前没有进入的对话。"
         steer_text = text[len("/steer"):].strip()
         if not steer_text:
             return "用法：/steer <插话>（在执行中引导方向，如 /steer 优先做移动端适配）"
@@ -115,7 +115,7 @@ def _handle_command(open_id: str, text: str) -> str:
     if cmd == "/model":
         task = store.current_task(open_id)
         if not task or task.get("origin") != "gui":
-            return "先进入一个 GUI 对话（/task <序号>）或发一条文字调度新任务，即可用 /model 切换其模型。"
+            return "先进入一个对话（/task <序号>）或发一条文字调度新任务，即可用 /model 切换其模型。"
         return _takeover_model_command(open_id, task, parts[1:])
 
     if cmd == "/task" and len(parts) >= 2:
@@ -128,7 +128,7 @@ def _handle_command(open_id: str, text: str) -> str:
             tag = "已切回" if r.get("existing") else "已进入"
             return (
                 f"{tag}对话「{r['name']}」。此后直接发文字即可指挥这条对话"
-                f"（{r['kernel_id'][:13]}…，AStudio 自带模型，GUI 实时可见；"
+                f"（{r['kernel_id'][:13]}…，AStudio 自带模型，AStudio 界面实时可见；"
                 f"空闲时投递约 1 分钟内完成）。"
             )
         if arg == "del":
@@ -149,10 +149,10 @@ def _handle_command(open_id: str, text: str) -> str:
     if cmd == "/task":
         cur = store.current_task(open_id)
         if cur is None:
-            return ("当前没有任务。发一条文字即可调度全新 GUI 任务；"
+            return ("当前没有任务。发一条文字即可调度全新的 AStudio 任务；"
                     "或发 /sessions 后用 /task <序号> 进入已有对话。")
         lines = [f"当前任务：「{cur['name']}」"]
-        lines.append(f"  类型：{'AStudio GUI 对话' if cur.get('origin') == 'gui' else '本地任务'}")
+        lines.append(f"  类型：AStudio 对话")
         if cur.get("gui_thread_id"):
             lines.append(f"  线程：{cur['gui_thread_id'][:13]}…")
         if cur.get("model"):
@@ -191,12 +191,12 @@ def _handle_command(open_id: str, text: str) -> str:
         lines = [f"任务数：{len(store.list_tasks(open_id))}"]
         if cur:
             lines.append(f"当前任务：{cur['name']}")
-            lines.append(f"类型：{'GUI接管' if cur.get('origin') == 'gui' else '本地'}")
+            lines.append(f"类型：{'对话' if cur.get('origin') == 'gui' else '本地'}")
             lines.append(f"轮数：{cur.get('turns', 0)}")
             if cur.get("model"):
                 lines.append(f"模型：{cur['model']}")
         else:
-            lines.append("当前任务：无（发文字将调度新 GUI 任务）")
+            lines.append("当前任务：无（发文字将调度新的 AStudio 任务）")
         return "\n".join(lines)
 
     return f"未知命令：{cmd}。发送 /help 查看用法。"
@@ -210,24 +210,24 @@ def _handle_chat(open_id: str, text: str) -> str:
     if task is None:
         return _dispatch_new_gui_task(open_id, text)
     if task.get("origin") != "gui":
-        # 自动切到最近创建的 GUI 任务继续投递，避免打断用户
+        # 自动切到最近创建的任务继续投递，避免打断用户
         gui_tasks = [t for t in store.list_tasks(open_id) if t.get("origin") == "gui"]
         if gui_tasks:
             name = gui_tasks[-1]["name"]
             store.switch_task(open_id, name)
             task = store.current_task(open_id)
             return _chat_takeover(open_id, name, task, text)
-        return "还没有可投递的 GUI 任务。发 /sessions 查看，然后 /task takeover <编号> 接管。"
+        return "还没有可投递的对话。发 /sessions 查看，然后 /task <序号> 进入。"
     task_name = task["name"]
     return _chat_takeover(open_id, task_name, task, text)
 
 
 def _dispatch_new_gui_task(open_id: str, text: str) -> str:
-    """没有任务时：调度 standalone 自动化 -> App 新建 GUI 线程并执行 -> 自动绑定。"""
+    """没有任务时：调度 standalone 自动化 -> App 新建对话并执行 -> 自动绑定。"""
     import gateway.astudio_automation as automation
     import gateway.astudio_mcp as mcp
 
-    # 项目归属：取最近的 GUI 会话所带 projectId；没有则用模板兜底
+    # 项目归属：取最近会话所带 projectId；没有则用模板兜底
     items = session_import.list_sessions()
     project_id = None
     if items:
@@ -247,7 +247,7 @@ def _dispatch_new_gui_task(open_id: str, text: str) -> str:
 
     thread_id = automation.get_run_thread_id(automation_id)
     if not thread_id:
-        return "任务已创建但未取回线程 id，请在 AStudio GUI 里查看新对话。"
+        return "任务已创建但未取回线程 id，请在 AStudio 里查看新对话。"
 
     # 等模型回复（新线程里 prompt 是第一条消息，等助手消息出现即可）
     reply = mcp.wait_for_reply(thread_id, 0, timeout=EXEC_TIMEOUT_SECONDS)
@@ -271,11 +271,11 @@ def _dispatch_new_gui_task(open_id: str, text: str) -> str:
         gui_thread_id=thread_id,
         turns=1,
     ))
-    return f"已创建新 GUI 任务「{name}」（线程 {thread_id[:13]}…）并设为当前任务：\n{reply}"
+    return f"已创建新任务「{name}」（AStudio 对话列表可查看）并设为当前任务：\n{reply}"
 
 
 def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
-    """GUI 任务的模型查看/切换：/model 列目录，/model <slug> 改绑线程模型。"""
+    """当前任务的模型查看/切换：/model 列目录，/model <slug> 改绑线程模型。"""
     import gateway.astudio_automation as automation
     import gateway.astudio_mcp as mcp
 
@@ -284,7 +284,7 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
         current = (mcp.read_thread(thread_id, message_limit=1).get("model") or "").strip()
         slugs = mcp.list_model_slugs()
     except mcp.McpError as e:
-        return f"GUI 会话不可用：{e}"
+        return f"AStudio 会话不可用：{e}"
 
     if not args:
         lines = [f"当前会话模型：{current or '（未知）'}", "可用模型："]
@@ -319,7 +319,7 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
 
 
 def _history_output(open_id: str, n_raw: str) -> str:
-    """读取当前任务上下文：GUI 任务实时读 AStudio 线程。"""
+    """读取当前任务上下文：实时读 AStudio 对话内容。"""
     import gateway.astudio_mcp as mcp
 
     try:
@@ -329,7 +329,7 @@ def _history_output(open_id: str, n_raw: str) -> str:
 
     task = store.current_task(open_id)
     if task is None:
-        return "还没有任务。发一条文字调度新任务，或 /task takeover 接管 GUI 会话。"
+        return "还没有任务。发一条文字调度新任务，或发 /sessions 后用 /task <序号> 进入对话。"
     if task.get("origin") != "gui":
         return f"任务「{task['name']}」是本地任务（无 AStudio 线程）。"
 
@@ -341,8 +341,8 @@ def _history_output(open_id: str, n_raw: str) -> str:
         return f"读取 AStudio 会话失败：{e}"
     msgs = data.get("messages", [])[-n:]
     if not msgs:
-        return f"任务「{name}」（GUI 会话）：暂无消息。"
-    lines = [f"任务「{name}」（GUI 会话·模型 {data.get('model', '?')}）最近 {len(msgs)} 条："]
+        return f"任务「{name}」：暂无消息。"
+    lines = [f"任务「{name}」（模型 {data.get('model', '?')}）最近 {len(msgs)} 条："]
     for m in msgs:
         who = "用户" if m.get("role") == "user" else "助手"
         text = (m.get("text") or "").replace("\n", " ")[:160]
@@ -351,7 +351,7 @@ def _history_output(open_id: str, n_raw: str) -> str:
 
 
 def _chat_takeover(open_id: str, task_name: str, task: dict, text: str, steer: bool = False) -> str:
-    """GUI 任务投递：远程消息直达 GUI 线程，模型走 AStudio 自带通道。
+    """投递：远程消息直达当前对话，模型走 AStudio 自带通道。
 
     - 会话空闲：直写一次性 heartbeat 自动化，App 调度器 ≤60s 自主唤醒投递
     - 会话忙碌（steer=False）：拒收，引导 /stop 或 /steer
@@ -383,10 +383,10 @@ def _chat_takeover(open_id: str, task_name: str, task: dict, text: str, steer: b
         if run_status not in ("succeeded",):
             return f"自动化投递未成功（run={run_status}），消息可能未送达。"
     except mcp.McpError as e:
-        return f"GUI 会话不可用：{e}"
+        return f"AStudio 会话不可用：{e}"
     try:
         reply = mcp.wait_for_reply(thread_id, baseline, timeout=EXEC_TIMEOUT_SECONDS)
     except mcp.McpError as e:
-        return f"消息已送达 GUI 会话（回复等待超时：{e}）"
+        return f"消息已送达对话（回复等待超时：{e}）"
     store.bump_turns(open_id, task_name)
     return reply

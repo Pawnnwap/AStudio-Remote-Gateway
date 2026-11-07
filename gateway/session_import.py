@@ -1,8 +1,8 @@
 # AI生成
 # -*- coding: utf-8 -*-
-"""AStudio 存量 GUI 会话：发现 / 接管（项目核心：远程调度 GUI 任务）。
+"""AStudio 存量对话：发现 / 进入（项目核心：远程调度 AStudio 任务）。
 
-- list_sessions()      列出 GUI 会话（含消息数/可接管性）
+- list_sessions()      列出存量对话（含消息数/可进入性）
 - takeover_session()   接管：任务消息直达 AStudio 原对话
 只读访问，不改动 AStudio 任何数据。
 """
@@ -86,8 +86,8 @@ def list_sessions() -> list[dict]:
 
 def format_session_list(items: list[dict], current_thread_id: str | None = None) -> str:
     if not items:
-        return "未发现 AStudio 存量 GUI 会话（AStudio 是否在运行？）。"
-    lines = ["AStudio GUI 会话（按最近活跃排序；序号固定；/task 序号 进入）"]
+        return "未发现 AStudio 存量对话（AStudio 是否在运行？）。"
+    lines = ["AStudio 对话（按最近活跃排序；序号固定；/task 序号 进入）"]
     for it in items:
         extra = "" if it.get("takeover") else "·不可接管"
         if it.get("status") == "working":
@@ -142,7 +142,7 @@ def takeover_session(key: str, open_id: str, store) -> dict:
     while name in user.get("tasks", {}):
         name = f"{name}-2"
 
-    store.create_task(open_id, name, "接管自 AStudio GUI 会话（远程调度）")
+    store.create_task(open_id, name, "接管自 AStudio 对话（远程调度）")
     store._update(open_id, lambda u: u["tasks"][name].update(
         session_id=kernel_id,
         origin="gui",

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -135,11 +136,55 @@ def _im_post(path: str, body: dict) -> dict:
     return json.loads(urllib.request.urlopen(req, timeout=15).read())
 
 
+_DIALOGUE_PREFIX = re.compile(r"^\[(用户|助手)\]\s*")
+
+
+def _elements(text: str) -> list[dict]:
+    """把回复拆成卡片元素：一问一答各一块（用户/助手徽标 + hr 分隔），其余为单 markdown。
+
+    对话文本形如：
+        [用户] 问题…
+        [助手] 回答…
+    也可带前置说明行（第一段对话行之前的内容）。
+    """
+    lines = text.split("\n")
+    header_lines = []
+    i = 0
+    while i < len(lines) and not _DIALOGUE_PREFIX.match(lines[i]):
+        header_lines.append(lines[i])
+        i += 1
+    blocks: list[tuple[str, list[str]]] = []
+    while i < len(lines):
+        m = _DIALOGUE_PREFIX.match(lines[i])
+        role = "user" if m.group(1) == "用户" else "assistant"
+        content = [lines[i][m.end():]]
+        i += 1
+        while i < len(lines) and not _DIALOGUE_PREFIX.match(lines[i]):
+            content.append(lines[i])
+            i += 1
+        blocks.append((role, content))
+    if not blocks:
+        return [{"tag": "markdown", "content": text}]
+
+    elements: list[dict] = []
+    header = "\n".join(l for l in header_lines if l.strip())
+    if header:
+        elements.append({"tag": "markdown", "content": header})
+    for role, content in blocks:
+        who = "🙋 **用户**" if role == "user" else "🤖 **助手**"
+        body = "\n".join(content).strip()
+        elements.append({"tag": "markdown", "content": f"{who}\n{body}" if body else who})
+        elements.append({"tag": "hr"})
+    if elements and elements[-1].get("tag") == "hr":
+        elements.pop()
+    return elements
+
+
 def _card(text: str) -> dict:
-    """把文本包装成 markdown 卡片（自动渲染粗体/链接/列表；纯文本降级保底）。"""
+    """把文本包装成 markdown 卡片（一问一答分块渲染；纯文本降级保底）。"""
     return {
         "config": {"wide_screen_mode": True},
-        "elements": [{"tag": "markdown", "content": text}],
+        "elements": _elements(text),
     }
 
 
