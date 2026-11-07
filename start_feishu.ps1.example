@@ -1,0 +1,12 @@
+# AI生成
+# 飞书网关启动脚本模板：复制为 start_feishu.ps1 并填入凭证后使用（勿提交真实凭证）
+# 用法: powershell -ExecutionPolicy Bypass -File start_feishu.ps1
+
+$env:FEISHU_APP_ID     = "cli_xxxx"     # <- 开发者后台「凭证与基础信息」的 App ID
+$env:FEISHU_APP_SECRET = "xxxx"         # <- 同页 App Secret
+
+# 可选：本地任务后端（新任务对话走 MaaS；接管 GUI 会话不需要它）
+# $env:MAAS_API_KEY   = "ak-xxxx"
+
+Set-Location -Path $PSScriptRoot
+python main.py

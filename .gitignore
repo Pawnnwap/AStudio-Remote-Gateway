@@ -1,0 +1,11 @@
+# 隐私与本地材料（永不提交）
+data/
+start_feishu.ps1
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 大体积 vendored SDK（见 README「依赖」：本地 vendor 或 pip install lark-oapi）
+vendor/
