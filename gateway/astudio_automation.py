@@ -176,6 +176,24 @@ def schedule_delivery(
     return automation_id
 
 
+def wait_thread_free(thread_id: str, timeout: int = 150, interval: float = 3.0) -> None:
+    """等目标线程上没有进行中的自动化 run（调度器对同线程并发 run 会 skip）。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        con = sqlite3.connect(str(APP_DB), timeout=10)
+        con.execute("PRAGMA busy_timeout=8000")
+        row = con.execute(
+            "SELECT status FROM automation_runs WHERE thread_id=? AND finished_at IS NULL "
+            "ORDER BY created_at DESC LIMIT 1",
+            (thread_id,),
+        ).fetchone()
+        con.close()
+        if not row:
+            return
+        time.sleep(interval)
+    raise RuntimeError("目标对话仍有进行中的自动化任务，请稍候重试")
+
+
 def wait_run(automation_id: str, timeout: int = 180, interval: float = 3.0) -> str:
     """等调度器触发并跑完，返回 run 终态（succeeded/failed/skipped…）。超时抛 RuntimeError。"""
     deadline = time.time() + timeout

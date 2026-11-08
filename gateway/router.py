@@ -291,8 +291,10 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
         return f"未知模型：{slug}。发送 /model 查看可选列表。"
     if slug == current:
         return f"会话模型已是 {slug}，无需切换。"
+    prev_model = current or task.get("model")
     try:
         before = mcp.read_thread(thread_id, message_limit=1)
+        automation.wait_thread_free(thread_id)
         automation_id = automation.schedule_delivery(
             thread_id,
             f"（飞书网关）模型已切换为 {slug}。",
@@ -305,7 +307,20 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
     except (mcp.McpError, RuntimeError) as e:
         return f"模型切换失败：{e}"
     if run_status != "succeeded":
-        return f"模型切换未完成（run={run_status}），请重试。"
+        # 切换失败可能在线程上留下坏路由：自动回滚到上一个已知可用模型
+        try:
+            automation.wait_thread_free(thread_id)
+            rollback = automation.schedule_delivery(
+                thread_id,
+                f"（飞书网关）模型切换失败，已回滚为 {prev_model or '原模型'}。",
+                fire_in_seconds=1,
+                model_slug=prev_model,
+                project_id=before.get("projectId"),
+            )
+            automation.wait_run(rollback, timeout=180)
+            return f"模型切换未成功（{run_status}），已自动回滚为原模型 {prev_model or '原模型'}。"
+        except Exception:
+            return f"模型切换未完成（run={run_status}），请重试。"
     store._update(open_id, lambda u: u["tasks"][task["name"]].update(model=slug))
     after = mcp.read_thread(thread_id, message_limit=1).get("model")
     return f"模型已切换为 {slug}（线程改绑确认：{after}）。之后的消息投递继续使用该模型。"

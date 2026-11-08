@@ -267,7 +267,8 @@ def list_model_slugs() -> list[str]:
         for p in r.get("providers", []):
             for m in p.get("models", []):
                 slug = m.get("slug")
-                if slug:
+                # astronclaw-auto 是 App 界面默认路由，不经模型网关（投递会 409），不提供
+                if slug and slug != "astronclaw-auto":
                     slugs.append(slug)
         _models_cache = slugs
     return _models_cache
