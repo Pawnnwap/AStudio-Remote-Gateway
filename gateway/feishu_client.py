@@ -167,7 +167,7 @@ def _elements(text: str) -> list[dict]:
         return [{"tag": "markdown", "content": text}]
 
     elements: list[dict] = []
-    header = "\n".join(l for l in header_lines if l.strip())
+    header = "\n".join(ln for ln in header_lines if ln.strip())
     if header:
         elements.append({"tag": "markdown", "content": header})
     for role, content in blocks:

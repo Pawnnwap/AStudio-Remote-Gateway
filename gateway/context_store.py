@@ -13,9 +13,8 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime
-from pathlib import Path
 
-from gateway.config import DATA_DIR, REGISTRY_PATH
+from gateway.config import REGISTRY_PATH
 
 LOCK = threading.RLock()
 

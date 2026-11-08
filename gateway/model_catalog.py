@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import time
 import urllib.request
 from pathlib import Path
@@ -91,8 +90,6 @@ def scan(force: bool = False) -> dict:
                 return d
         except (ValueError, OSError):
             pass
-
-    from gateway.astudio_mcp import _astudio_ports
 
     tok = _catalog_token()
     base = _gateway_base_url(tok) if tok else None

@@ -23,15 +23,10 @@ APP_DB = Path(os.environ.get("ASTUDIO_APP_DB", r"E:\AStudio Data\userdata\state.
 # 官方工具落库的模板值（本项目工作区；custom 绑定为线程原模型 spark-x2.6-4b）
 TEMPLATE = {
     "project_id": "53f9d709-e043-4641-8bd5-f3d85816e949",
-    "model_selection_json": json.dumps({
-        "provider": "acode",
-        "model": "spark-x2.6-4b",
-        "options": {"reasoningEffort": "xhigh"},
-        "customModel": {
-            "configId": "REDACTED-CONFIG-ID",
-            "executionRevision": 2,
-        },
-    }, ensure_ascii=False, separators=(",", ":")),
+    "model_selection_json": json.dumps(
+        {"provider": "acode", "model": "spark-x2.6"},
+        ensure_ascii=False, separators=(",", ":"),
+    ),
     "runtime_mode": "full-access",
     "interaction_mode": "default",
     "worktree_mode": "local",
@@ -54,6 +49,23 @@ def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + (
         f"{int(ts * 1000) % 1000:03d}Z"
     )
+
+
+def thread_model_local(thread_id: str) -> str | None:
+    """从 provider_session_runtime 本地读线程当前模型（无需 App/MCP）。"""
+    try:
+        con = sqlite3.connect(str(APP_DB), timeout=10)
+        con.execute("PRAGMA busy_timeout=8000")
+        row = con.execute(
+            "SELECT runtime_payload_json FROM provider_session_runtime WHERE thread_id=?",
+            (thread_id,),
+        ).fetchone()
+        con.close()
+        if row and row[0]:
+            return (json.loads(row[0]).get("modelSelection") or {}).get("model")
+    except (sqlite3.Error, ValueError):
+        pass
+    return None
 
 
 def resolve_model_selection(thread_id: str, model_slug: str) -> dict:
@@ -132,7 +144,7 @@ def schedule_delivery(
         mode = TEMPLATE["mode"]
         source_thread_id = thread_id
         target_thread_id = thread_id
-        target_model = model_slug or thread_model
+        target_model = model_slug or thread_model or thread_model_local(thread_id or "")
         if target_model:
             # custom 绑定模型必须走还原链补全 customModel（简单形状会 invalid request）
             model_selection = json.dumps(

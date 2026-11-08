@@ -8,18 +8,19 @@
 
 环境变量：
   FEISHU_APP_ID / FEISHU_APP_SECRET   飞书自建应用凭证
-  ASTUDIO_BIN / ACODE_HOME            AStudio 内核路径覆盖
+  ASTUDIO_APP_DB / ASTUDIO_GUI_ACODE_HOME   AStudio 路径覆盖（默认自动探测）
   GATEWAY_DATA_DIR                    注册表数据目录
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-import argparse
+
 
 
 def run_mock() -> None:

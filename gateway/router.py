@@ -30,7 +30,7 @@ HELP_TEXT = """可用命令：
 /task <序号>               进入 AStudio 对话（序号同 /sessions，如 /task 3）
 /task del <序号|名>        删除任务
 /sessions                  列出 AStudio 已有对话
-/model [模型]              查看/切换当前任务的模型（改绑持久生效）
+/model [模型] [消息]       查看/切换模型；带消息时一步切换并投递
 /history [条数]            读取当前任务上下文
 /status                    当前状态总览
 /stop                      停止当前正在执行的回合
@@ -152,7 +152,7 @@ def _handle_command(open_id: str, text: str) -> str:
             return ("当前没有任务。发一条文字即可调度全新的 AStudio 任务；"
                     "或发 /sessions 后用 /task <序号> 进入已有对话。")
         lines = [f"当前任务：「{cur['name']}」"]
-        lines.append(f"  类型：AStudio 对话")
+        lines.append("  类型：AStudio 对话")
         if cur.get("gui_thread_id"):
             lines.append(f"  线程：{cur['gui_thread_id'][:13]}…")
         if cur.get("model"):
@@ -179,7 +179,6 @@ def _handle_command(open_id: str, text: str) -> str:
         return session_import.format_session_list(items, current_thread_id=cur_tid)
 
     if cmd == "/status":
-        user = store.get_user(open_id)
         cur = store.current_task(open_id)
         lines = [f"任务数：{len(store.list_tasks(open_id))}"]
         if cur:
