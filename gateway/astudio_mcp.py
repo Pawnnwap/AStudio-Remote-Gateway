@@ -65,24 +65,46 @@ def _initialize(url: str, token: str) -> bool:
 
 
 def extract_session_tokens() -> list[str]:
-    """从活内核子进程内存提取全部 provider-session 凭证（sagw_session_*）。
+    """提取全部 provider-session 凭证（sagw_session_*）。
 
-    凭证按线程独立，不同线程的写操作需各自的凭证；返回全部候选由调用方逐一尝试。
+    来源依次扫描：内核子进程（快）→ AStudio App 全部进程（慢但最全）。
+    App 侧协调器持有当前活凭证；凭证轮换后子进程内存里的旧凭证会 401，
+    必须扫 App 才能拿到新值。返回全部候选，由端口×凭证矩阵验证。
     """
     import psutil
+    from concurrent.futures import ThreadPoolExecutor
 
     pat = re.compile(rb"sagw_session_[0-9a-f-]{8,40}")
+    procs = []
+    seen_pids = set()
+    for p in psutil.process_iter(["pid", "name"]):
+        name = (p.info["name"] or "").lower()
+        if "acode" in name:
+            procs.append(p)
+            seen_pids.add(p.info["pid"])
+    for p in psutil.process_iter(["pid", "name"]):
+        if p.info["name"] == "AStudio.exe" and p.info["pid"] not in seen_pids:
+            procs.append(p)
+    if not procs:
+        raise McpError("未发现 AStudio 进程（AStudio 是否在运行？）")
+
+    def scan(proc):
+        try:
+            return _scan_memory(proc.info["pid"], pat)
+        except Exception:
+            return []
+
     candidates: list[str] = []
-    children = [p for p in psutil.process_iter(["pid", "name"])
-                if p.info["name"] and "acode" in p.info["name"].lower()]
-    if not children:
-        raise McpError("未发现 AStudio 内核子进程（AStudio 是否在运行？）")
-    for proc in children:
-        for tok in _scan_memory(proc.pid, pat):
-            if tok not in candidates:
-                candidates.append(tok)
+    with ThreadPoolExecutor(max_workers=min(8, len(procs))) as ex:
+        for toks in ex.map(scan, procs):
+            for tok in toks:
+                if tok not in candidates:
+                    candidates.append(tok)
     if not candidates:
-        raise McpError("未能从内核子进程提取会话凭证；请在 AStudio 里打开目标对话后重试。")
+        raise McpError(
+            "未能从 AStudio 进程内存提取会话凭证。"
+            "请在 AStudio 界面里打开任意一个对话（会生成新凭证）后重试。"
+        )
     return candidates
 
 
@@ -116,13 +138,21 @@ def _scan_memory(pid: int, pat: re.Pattern) -> list[str]:
 
 
 def discover_endpoint() -> tuple[str, list[str]]:
-    """发现 App MCP 服务，返回 (mcp_url, 全部候选凭证)。"""
+    """发现 App MCP 服务：端口 × 凭证全矩阵验证，返回 (mcp_url, 候选凭证)。"""
     tokens = extract_session_tokens()
-    for port in _astudio_ports():
+    ports = _astudio_ports()
+    for port in ports:
         url = f"http://127.0.0.1:{port}/mcp"
-        if _initialize(url, tokens[0]):
-            return url, tokens
-    raise McpError("未发现 AStudio App MCP 服务（AStudio 是否在运行？）")
+        for tok in tokens:
+            if _initialize(url, tok):
+                # 把可用凭证排到队首，后续调用优先使用
+                tokens.remove(tok)
+                tokens.insert(0, tok)
+                return url, tokens
+    raise McpError(
+        f"未发现可用的 AStudio App MCP 服务（已探测 {len(ports)} 个端口 × {len(tokens)} 个凭证）。"
+        "请在 AStudio 界面里打开任意对话一次（刷新会话凭证）后重试。"
+    )
 
 
 # ---------- 会话 ----------
@@ -134,7 +164,7 @@ def ensure_session() -> tuple[str, list[str]]:
     global _cached
     if _cached:
         url, tokens = _cached
-        if _initialize(url, tokens[0]):
+        if any(_initialize(url, tok) for tok in tokens):
             return url, tokens
         _cached = None
     _cached = discover_endpoint()

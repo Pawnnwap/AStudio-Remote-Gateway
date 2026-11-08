@@ -319,8 +319,10 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
 
 
 def _history_output(open_id: str, n_raw: str) -> str:
-    """读取当前任务上下文：实时读 AStudio 对话内容。"""
-    import gateway.astudio_mcp as mcp
+    """读取当前任务上下文：直读本地投影库（不依赖 App 在线/凭证状态）。"""
+    import sqlite3
+
+    from gateway.session_import import APP_DB, clean_title
 
     try:
         n = max(1, min(50, int(n_raw)))
@@ -331,22 +333,29 @@ def _history_output(open_id: str, n_raw: str) -> str:
     if task is None:
         return "还没有任务。发一条文字调度新任务，或发 /sessions 后用 /task <序号> 进入对话。"
     if task.get("origin") != "gui":
-        return f"任务「{task['name']}」是本地任务（无 AStudio 线程）。"
+        return f"任务「{task['name']}」是本地任务（无 AStudio 对话）。"
 
     name = task["name"]
     thread_id = task.get("gui_thread_id") or task.get("session_id")
-    try:
-        data = mcp.read_thread(thread_id, message_limit=n)
-    except mcp.McpError as e:
-        return f"读取 AStudio 会话失败：{e}"
-    msgs = data.get("messages", [])[-n:]
-    if not msgs:
+    con = sqlite3.connect(f"file:{APP_DB.as_posix()}?mode=ro", uri=True)
+    rows = con.execute(
+        "SELECT role, text FROM projection_thread_messages "
+        "WHERE thread_id=? AND role IN ('user','assistant') AND text IS NOT NULL AND text != '' "
+        "ORDER BY created_at DESC, sequence DESC LIMIT ?",
+        (thread_id, n),
+    ).fetchall()
+    title = con.execute(
+        "SELECT title FROM projection_threads WHERE thread_id=?", (thread_id,)
+    ).fetchone()
+    con.close()
+    if not rows:
         return f"任务「{name}」：暂无消息。"
-    lines = [f"任务「{name}」（模型 {data.get('model', '?')}）最近 {len(msgs)} 条："]
-    for m in msgs:
-        who = "用户" if m.get("role") == "user" else "助手"
-        text = (m.get("text") or "").replace("\n", " ")[:160]
-        lines.append(f"  [{who}] {text}")
+    lines = [f"任务「{name}」最近 {len(rows)} 条："]
+    for role, text in reversed(rows):  # 转回正序展示
+        who = "用户" if role == "user" else "助手"
+        lines.append(f"  [{who}] {(text or '').replace(chr(10), ' ')[:160]}")
+    if title and title[0]:
+        lines.append(f"（AStudio 标题：{clean_title(title[0])}）")
     return "\n".join(lines)
 
 
