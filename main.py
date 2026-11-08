@@ -55,10 +55,26 @@ def run_feishu() -> None:
     feishu_client.start()
 
 
+def scan_models() -> None:
+    """启动时重新扫描模型网关目录，甄别可用模型（尽力而为，失败不阻塞启动）。"""
+    try:
+        from gateway import model_catalog
+
+        d = model_catalog.scan(force=True)
+        good = [m["name"] for m in d["models"] if m["good"]]
+        bad = [m["name"] for m in d["models"] if not m["good"]]
+        print(f"[模型扫描] 可用 {len(good)} 个: {', '.join(good) or '（无）'}")
+        if bad:
+            print(f"[模型扫描] 排除 {len(bad)} 个: {', '.join(bad)}")
+    except Exception as e:
+        print(f"[模型扫描] 跳过（{e}），/model 时会再尝试")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="飞书-AStudio 网关")
     parser.add_argument("--mock", action="store_true", help="本地 mock 模式")
     args = parser.parse_args()
+    scan_models()
     if args.mock:
         run_mock()
     else:

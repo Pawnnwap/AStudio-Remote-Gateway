@@ -164,6 +164,14 @@ powershell -ExecutionPolicy Bypass -File start_feishu.ps1
 | `GATEWAY_DATA_DIR` | `./data` | registry.json 落盘目录 |
 | `GATEWAY_EXEC_TIMEOUT` | `600` | 等待模型回复的超时（秒） |
 
+### 模型目录扫描
+
+服务每次启动会连接模型网关 `/v1/models` 重新扫描目录（权威路由来源），甄别哪些自带模型可投递：
+
+- 界面默认路由（astronclaw-auto）不经模型网关，自动排除（投递会 409，实测）
+- 其余模型全部实测可用（2026-11-08 逐个切换验证）：spark-x2.6、spark-x2.6-4b、spark-x2.5、xopglm52、xopdeepseekv4pro0813、xopdsv4flash0731in
+- 扫描结果缓存于 `data/model_catalog.json`；`/model` 列表以此为准，App 离线时展示缓存
+
 ## 目录结构
 
 ```
