@@ -287,8 +287,15 @@ def _takeover_model_command(open_id: str, task: dict, args: list[str]) -> str:
         return "\n".join(lines)
 
     slug = args[0].strip()
+    message = " ".join(args[1:]).strip()
     if slug not in slugs:
         return f"未知模型：{slug}。发送 /model 查看可选列表。"
+    if message:
+        # 一步切换并投递：投递定义自带新模型，无需单独的切换通知回合
+        if session_import.thread_busy(thread_id):
+            return ("任务正在执行中，暂不接收新指令。\n"
+                    "可选：等它完成；/stop 停止；/steer <插话> 引导。")
+        return _chat_takeover(open_id, task["name"], task, message, model_slug=slug)
     if slug == current:
         return f"会话模型已是 {slug}，无需切换。"
     prev_model = current or task.get("model")
@@ -367,7 +374,8 @@ def _history_output(open_id: str, n_raw: str) -> str:
     return "\n".join(lines)
 
 
-def _chat_takeover(open_id: str, task_name: str, task: dict, text: str, steer: bool = False) -> str:
+def _chat_takeover(open_id: str, task_name: str, task: dict, text: str,
+                   steer: bool = False, model_slug: str | None = None) -> str:
     """GUI 任务投递：主链路全本地（自动化写库 + 投影库读回复），零实时依赖。
 
     - 会话空闲：直写一次性 heartbeat 自动化，App 调度器 ≤60s 自主唤醒投递
@@ -393,12 +401,15 @@ def _chat_takeover(open_id: str, task_name: str, task: dict, text: str, steer: b
         return ("任务正在执行中，暂不接收新指令。\n"
                 "可选：等它完成；/stop 停止当前执行；/steer <插话> 引导方向。")
 
+    use_model = model_slug or task.get("model")
     automation_id = automation.schedule_delivery(
-        thread_id, text, model_slug=task.get("model"),
+        thread_id, text, model_slug=use_model,
     )
     run_status = automation.wait_run(automation_id, timeout=180)
     if run_status not in ("succeeded",):
         return f"自动化投递未成功（run={run_status}），消息可能未送达。"
+    if model_slug and model_slug != task.get("model"):
+        store._update(open_id, lambda u: u["tasks"][task_name].update(model=model_slug))
 
     # 本地等回复：投影库出现基线之后的助手消息即为完成
     deadline = __import__("time").time() + EXEC_TIMEOUT_SECONDS
