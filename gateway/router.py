@@ -93,15 +93,15 @@ def _handle_command(open_id: str, text: str) -> str:
         if not task or task.get("origin") != "gui":
             return "当前没有进入的对话。"
         thread_id = task.get("gui_thread_id") or task.get("session_id")
+        if not session_import.thread_busy(thread_id):
+            return "该对话当前没有正在执行的回合。"
         try:
             import gateway.astudio_mcp as mcp
-            status = mcp.thread_status(thread_id)
-            if status != "working":
-                return "该对话当前没有正在执行的回合。"
             mcp.interrupt_thread(thread_id)
+            return "已请求停止当前回合。"
         except Exception as e:
-            return f"停止失败：{e}"
-        return "已请求停止当前回合。"
+            return (f"实时停止通道不可用（{e}）。"
+                    "可等待回合自然完成，或在 AStudio 界面里点击停止后重试。")
 
     if cmd == "/steer":
         task = store.current_task(open_id)
@@ -158,13 +158,9 @@ def _handle_command(open_id: str, text: str) -> str:
         if cur.get("model"):
             lines.append(f"  模型：{cur['model']}")
         lines.append(f"  轮数：{cur.get('turns', 0)}")
-        try:
-            import gateway.astudio_mcp as mcp
-            tid = cur.get("gui_thread_id") or cur.get("session_id")
-            st = mcp.thread_status(tid)
-            lines.append(f"  状态：{'●执行中' if st == 'working' else '空闲' if st == 'idle' else st}")
-        except Exception:
-            pass
+        tid = cur.get("gui_thread_id") or cur.get("session_id")
+        st = "●执行中" if session_import.thread_busy(tid) else "空闲"
+        lines.append(f"  状态：{st}")
         lines.append("（发 /sessions 用 /task <序号> 切换其他对话）")
         return "\n".join(lines)
 
@@ -179,10 +175,7 @@ def _handle_command(open_id: str, text: str) -> str:
         for it in items:
             if not it.get("takeover"):
                 continue
-            try:
-                it["status"] = mcp.thread_status(it["id"])
-            except mcp.McpError:
-                pass  # App 离线时不标执行状态
+            it["status"] = "working" if session_import.thread_busy(it["id"]) else None
         return session_import.format_session_list(items, current_thread_id=cur_tid)
 
     if cmd == "/status":
@@ -360,42 +353,50 @@ def _history_output(open_id: str, n_raw: str) -> str:
 
 
 def _chat_takeover(open_id: str, task_name: str, task: dict, text: str, steer: bool = False) -> str:
-    """投递：远程消息直达当前对话，模型走 AStudio 自带通道。
+    """GUI 任务投递：主链路全本地（自动化写库 + 投影库读回复），零实时依赖。
 
     - 会话空闲：直写一次性 heartbeat 自动化，App 调度器 ≤60s 自主唤醒投递
-    - 会话忙碌（steer=False）：拒收，引导 /stop 或 /steer
-    - 会话忙碌（steer=True） ：MCP steer 即时插话引导当前回合
+    - 会话忙碌（steer=False）：拒收新指令，引导 /stop 或 /steer
+    - 会话忙碌（steer=True）：优先 MCP 即时插话；凭证不可用时降级为排队投递
     """
     import gateway.astudio_automation as automation
     import gateway.astudio_mcp as mcp
 
     thread_id = task.get("gui_thread_id") or task.get("session_id")
-    try:
-        before = mcp.read_thread(thread_id, message_limit=1)
-        msgs = before.get("messages", [])
-        baseline = msgs[-1].get("index", 0) if msgs else 0
-        working = (before.get("status") or "").lower() == "working"
-        if working and steer:
+    baseline = session_import.last_message_rowid(thread_id)
+    busy = session_import.thread_busy(thread_id)
+
+    if busy and steer:
+        try:
             mcp.send_message(thread_id, text, mode="steer")
             return "已插话引导，当前回合会参考你的指示。"
-        if working:
-            return ("任务正在执行中，暂不接收新指令。\n"
-                    "可选：等它完成；/stop 停止当前执行；/steer <插话> 引导方向。")
-        if steer:
-            # 未在执行：按普通消息投递
-            pass
-        automation_id = automation.schedule_delivery(
-            thread_id, text, model_slug=task.get("model"),
-            project_id=before.get("projectId"), thread_model=before.get("model"),
-        )
-        run_status = automation.wait_run(automation_id, timeout=180)
-        if run_status not in ("succeeded",):
-            return f"自动化投递未成功（run={run_status}），消息可能未送达。"
-    except mcp.McpError as e:
-        return f"AStudio 会话不可用：{e}"
-    try:
-        reply = mcp.wait_for_reply(thread_id, baseline, timeout=EXEC_TIMEOUT_SECONDS)
-    except mcp.McpError as e:
-        return f"消息已送达对话（回复等待超时：{e}）"
+        except mcp.McpError:
+            automation.schedule_delivery(thread_id, f"（插话）{text}")
+            return ("实时插话通道不可用（会话凭证已轮换），已把插话排队："
+                    "将在当前回合完成后作为下一条消息送达。")
+    if busy:
+        return ("任务正在执行中，暂不接收新指令。\n"
+                "可选：等它完成；/stop 停止当前执行；/steer <插话> 引导方向。")
+
+    automation_id = automation.schedule_delivery(
+        thread_id, text, model_slug=task.get("model"),
+    )
+    run_status = automation.wait_run(automation_id, timeout=180)
+    if run_status not in ("succeeded",):
+        return f"自动化投递未成功（run={run_status}），消息可能未送达。"
+
+    # 本地等回复：投影库出现基线之后的助手消息即为完成
+    deadline = __import__("time").time() + EXEC_TIMEOUT_SECONDS
+    new_msgs: list[tuple[str, str]] = []
+    while __import__("time").time() < deadline:
+        new_msgs = session_import.recent_messages(thread_id, after_rowid=baseline)
+        if new_msgs and not session_import.thread_busy(thread_id):
+            break
+        __import__("time").sleep(3)
+    if not new_msgs:
+        return "消息已投递（回复等待超时）。"
+    lines = [f"  [{('用户' if r == 'user' else '助手')}] {x.replace(chr(10), ' ')[:160]}"
+             for r, x in new_msgs]
     store.bump_turns(open_id, task_name)
-    return reply
+    return "\n".join(lines)
+

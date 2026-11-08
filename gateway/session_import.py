@@ -105,6 +105,40 @@ def clean_title(title: str) -> str:
     return re.sub(r"\s*-\s*20\d{2}-\d{2}-\d{2}.*$", "", (title or "").strip())
 
 
+def recent_messages(thread_id: str, after_rowid: int = 0, limit: int = 50) -> list[tuple[str, str]]:
+    """本地读对话内容（ chronology 正序），只取 rowid > after_rowid 的新消息。"""
+    con = _ro(APP_DB)
+    rows = con.execute(
+        "SELECT rowid, role, text FROM projection_thread_messages "
+        "WHERE thread_id=? AND role IN ('user','assistant') AND text IS NOT NULL "
+        "AND rowid > ? ORDER BY rowid ASC LIMIT ?",
+        (thread_id, after_rowid, limit),
+    ).fetchall()
+    con.close()
+    return [(role, (text or "").strip()) for _, role, text in rows]
+
+
+def last_message_rowid(thread_id: str) -> int:
+    con = _ro(APP_DB)
+    row = con.execute(
+        "SELECT COALESCE(MAX(rowid), 0) FROM projection_thread_messages WHERE thread_id=?",
+        (thread_id,),
+    ).fetchone()
+    con.close()
+    return row[0] if row else 0
+
+
+def thread_busy(thread_id: str) -> bool:
+    """本地忙碌检测：最近回合状态为 running。"""
+    con = _ro(APP_DB)
+    row = con.execute(
+        "SELECT state FROM projection_turns WHERE thread_id=? ORDER BY rowid DESC LIMIT 1",
+        (thread_id,),
+    ).fetchone()
+    con.close()
+    return bool(row) and row[0] == "running"
+
+
 def _task_name(title: str) -> str:
     name = re.sub(r"[\\/:*?\"<>|\s]+", "-", clean_title(title))[:20].strip("-")
     return name or "default"
