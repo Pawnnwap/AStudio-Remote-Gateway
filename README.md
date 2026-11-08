@@ -116,10 +116,15 @@ powershell -ExecutionPolicy Bypass -File start_feishu.ps1
 
 ### 依赖
 
-飞书 SDK 二选一（网关自动适配，优先本地 vendor）：
+```
+pip install -r requirements.txt
+```
 
-- **方式 A（推荐，离线可用）**：把官方 `lark-oapi` 包复制为仓库下的 `vendor/flark/`（`pip install lark-oapi` 后复制 site-packages 里的 `lark_oapi` 目录并改名为 `flark`）。
-- **方式 B**：直接 `pip install lark-oapi`，网关检测到无 vendor 时自动改用官方包。
+- **psutil**（必需）：进程发现、环境变量读取、内存扫描
+- **飞书 SDK**（二选一，网关自动适配，优先本地 vendor）：
+  - 方式 A（推荐，离线可用）：`pip install lark-oapi` 后把 site-packages 里的 `lark_oapi` 目录复制为仓库下 `vendor/flark/`
+  - 方式 B：直接 `pip install lark-oapi`，网关检测到无 vendor 时自动改用官方包
+- 其余全部为 Python 标准库（无数据库、无运行时服务、无 API key）
 
 ### 用户命令
 
@@ -204,6 +209,15 @@ AStudio 自动化调度器采用**动态睡眠**：每轮执行完毕后睡到�
 | `astron exec` 直连 runtime home | 模型凭证随登录态轮换，外部进程不可复用（实测 401） |
 
 结论：自动化调度是**登录即可用、零凭证、最低侵入**约束下的最快官方路径；执行中的即时通道（`/steer`）不受此限制。
+
+## 长期运行（一次登录，长久远程使用）
+
+目标形态：**本机一次登录 AStudio 并启动网关，之后远程长期使用不掉线**。为此：
+
+- **凭证自愈**：投递/回复/忙碌检测/调度/目录全部本地化（SQLite + 自动化表），AStudio 会话凭证轮换不影响主链路；实时通道（/steer /stop）失效时自动降级，且每次自动化投递会让 App 重新绑定会话、凭证自动回到可用状态
+- **进程守护建议**：用「任务计划程序」或 [NSSM](https://nssm.cc/) 把 `python main.py` 注册为开机自启服务，并把 `E:\AStudio Data` 所在盘的 AStudio 设为开机自启并保持登录——两者齐备即"开机即在线"
+- **断线自愈**：飞书长连接由官方 SDK 负责心跳与重连（实测断网后自动恢复）；AStudio 重启后网关在下一次调用时重新发现端口与凭证
+- **崩溃残留免疫**：超过 15 分钟未结束的历史投递任务视为残留并忽略，不会卡死该对话后续消息；等待超时的投递定义会自动归档，避免恢复后补投过期消息
 
 ## 已知边界
 

@@ -176,19 +176,33 @@ def schedule_delivery(
     return automation_id
 
 
-def wait_thread_free(thread_id: str, timeout: int = 150, interval: float = 3.0) -> None:
-    """等目标线程上没有进行中的自动化 run（调度器对同线程并发 run 会 skip）。"""
+def wait_thread_free(thread_id: str, timeout: int = 150, interval: float = 3.0,
+                     stale_after_s: int = 900) -> None:
+    """等目标线程上没有进行中的自动化 run（调度器对同线程并发 run 会 skip）。
+
+    超过 stale_after_s（默认 15 分钟）仍未结束的 run 视为崩溃残留并忽略，
+    否则一次异常会永久卡死该对话的后续投递。
+    """
+    from datetime import datetime, timezone
+
     deadline = time.time() + timeout
     while time.time() < deadline:
         con = sqlite3.connect(str(APP_DB), timeout=10)
         con.execute("PRAGMA busy_timeout=8000")
-        row = con.execute(
-            "SELECT status FROM automation_runs WHERE thread_id=? AND finished_at IS NULL "
-            "ORDER BY created_at DESC LIMIT 1",
+        rows = con.execute(
+            "SELECT created_at FROM automation_runs WHERE thread_id=? AND finished_at IS NULL",
             (thread_id,),
-        ).fetchone()
+        ).fetchall()
         con.close()
-        if not row:
+        fresh = []
+        for (created,) in rows:
+            try:
+                dt = datetime.fromisoformat((created or "").replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - dt).total_seconds() < stale_after_s:
+                    fresh.append(created)
+            except ValueError:
+                pass
+        if not fresh:
             return
         time.sleep(interval)
     raise RuntimeError("目标对话仍有进行中的自动化任务，请稍候重试")
@@ -213,6 +227,11 @@ def wait_run(automation_id: str, timeout: int = 180, interval: float = 3.0) -> s
                 archive(automation_id)
                 return last
         time.sleep(interval)
+    # 超时即归档定义，避免 AStudio 恢复后把过期消息补投出去（重复送达）
+    try:
+        archive(automation_id)
+    except Exception:
+        pass
     raise RuntimeError(f"自动化触发等待超时（{timeout}s，最后状态: {last or '无 run 记录'}）")
 
 

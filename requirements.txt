@@ -1,0 +1,10 @@
+# AStudio-Remote-Gateway 依赖
+# Python 3.10+
+#
+# 必需：进程/环境检查（AStudio 发现、凭证提取、模型目录）
+psutil>=5.9
+
+# 飞书 SDK（二选一）：
+#   方式 A（推荐）：把 lark-oapi 复制为仓库下 vendor/flark/（离线可用，见 README「依赖」）
+#   方式 B：直接安装官方包（网关检测无 vendor 时自动使用）
+lark-oapi>=1.0
