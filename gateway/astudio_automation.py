@@ -19,6 +19,18 @@ import uuid
 from pathlib import Path
 
 APP_DB = Path(os.environ.get("ASTUDIO_APP_DB", r"E:\AStudio Data\userdata\state.sqlite"))
+# 3.6.1 更新（migration 0097_automation_accounts）起，自动化须绑定登录账号才会被调度：
+# 调度器按 astron-session.json 的 accountId 过滤 due 定义（无绑定行 -> 永不触发）。
+SESSION_FILE = Path(os.environ.get("ASTUDIO_SESSION_FILE", APP_DB.parent / "astron-session.json"))
+
+
+def current_account_id() -> str | None:
+    """当前登录账号 id（astron-session.json，随登录态自动变化，无硬编码）。"""
+    try:
+        with open(SESSION_FILE, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("accountId") or None
+    except (OSError, ValueError):
+        return None
 
 # 官方工具落库的模板值（本项目工作区；custom 绑定为线程原模型 spark-x2.6-4b）
 TEMPLATE = {
@@ -183,6 +195,14 @@ def schedule_delivery(
             TEMPLATE["acknowledged_risks_json"], ts, ts,
         ),
     )
+    # 账号绑定：调度器仅取绑定到当前登录账号的定义（与官方 bindAccount 同形态）
+    account_id = current_account_id()
+    if account_id:
+        con.execute(
+            "INSERT INTO automation_account_bindings (automation_id, account_id) "
+            "VALUES (?, ?) ON CONFLICT DO NOTHING",
+            (automation_id, account_id),
+        )
     con.commit()
     con.close()
     return automation_id
